@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>PassKey Vault · Passwordless Authentication</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #e2e8f0;
+      --border: #334155;
+      --accent: #38bdf8;
+      --success: #10b981;
+    }
+    .light-mode {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #1e293b;
+      --border: #cbd5e1;
+      --accent: #2563eb;
+      --success: #059669;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 16px;
+      min-height: 100vh;
+      transition: background 0.2s;
+      display: flex;
+      flex-direction: column;
+    }
+    .container { max-width: 500px; margin: 0 auto; width: 100%; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .logo {
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #38bdf8, #a78bfa);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    h2 { margin-bottom: 16px; font-weight: 500; }
+    p { margin-bottom: 16px; opacity: 0.8; line-height: 1.5; }
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 14px 20px;
+      border-radius: 40px;
+      font-weight: 600;
+      font-size: 16px;
+      width: 100%;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--text);
+    }
+    .flex { display: flex; gap: 10px; }
+    .info-box {
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      border-left: 4px solid var(--accent);
+      padding: 12px;
+      border-radius: 12px;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+    .credential-item {
+      background: var(--bg);
+      border-radius: 16px;
+      padding: 12px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .badge {
+      background: var(--accent);
+      color: black;
+      padding: 4px 8px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      background: #1e293b;
+      color: white;
+      padding: 12px;
+      border-radius: 30px;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 999;
+    }
+    .toast.show { opacity: 1; }
+    .theme-toggle { background: none; border: none; font-size: 24px; cursor: pointer; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="logo">🔑 PassKey Vault</div>
+    <button class="theme-toggle" id="themeToggle">🌙</button>
+  </div>
+
+  <!-- Registration Card -->
+  <div class="card">
+    <h2>📝 Register a Passkey</h2>
+    <p>Create a passkey using your device's biometric sensor (Face ID, Touch ID, Windows Hello) or a security key.</p>
+    <div class="info-box">
+      <strong>🔒 What happens?</strong><br>
+      Your device generates a private key that never leaves the secure enclave. Only a public key is stored in this demo.
+    </div>
+    <div class="flex">
+      <input type="text" id="usernameInput" placeholder="Choose a username" style="flex:1; padding:12px; border-radius:40px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
+      <button class="btn" id="registerBtn" style="width:auto; padding:12px 24px;">Register</button>
+    </div>
+  </div>
+
+  <!-- Login Card -->
+  <div class="card">
+    <h2>🔓 Login with Passkey</h2>
+    <p>Use your registered passkey to authenticate without a password.</p>
+    <button class="btn" id="loginBtn">Authenticate</button>
+  </div>
+
+  <!-- Registered Credentials -->
+  <div class="card">
+    <h2>📋 Registered Users</h2>
+    <div id="credentialsList">
+      <p style="opacity:0.6;">No credentials stored yet.</p>
+    </div>
+    <button class="btn-outline" id="clearAllBtn" style="margin-top:12px;">Clear All Data</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  (function(){
+    "use strict";
+
+    // ---------- Database (IndexedDB) ----------
+    const DB_NAME = 'PassKeyVaultDB';
+    const STORE_NAME = 'credentials';
+    let db;
+
+    async function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => { db = request.result; resolve(db); };
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          }
+        };
+      });
+    }
+
+    async function saveCredential(credential) {
+      if (!db) await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.put(credential);
+        tx.oncomplete = resolve;
+        tx.onerror = reject;
+      });
+    }
+
+    async function getAllCredentials() {
+      if (!db) await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = reject;
+      });
+    }
+
+    async function clearAllCredentials() {
+      if (!db) await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.clear();
+        tx.oncomplete = resolve;
+        tx.onerror = reject;
+      });
+    }
+
+    // ---------- Utilities ----------
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.style.background = isError ? '#dc2626' : '#1e293b';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    function arrayBufferToBase64(buffer) {
+      return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+    }
+
+    function base64ToArrayBuffer(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes.buffer;
+    }
+
+    // ---------- WebAuthn Helpers ----------
+    function generateChallenge() {
+      return crypto.getRandomValues(new Uint8Array(32));
+    }
+
+    // ---------- Render Credentials ----------
+    async function renderCredentials() {
+      const listDiv = document.getElementById('credentialsList');
+      try {
+        const creds = await getAllCredentials();
+        if (creds.length === 0) {
+          listDiv.innerHTML = '<p style="opacity:0.6;">No credentials stored yet.</p>';
+          return;
+        }
+        let html = '';
+        creds.forEach(c => {
+          html += `<div class="credential-item">
+            <div><strong>${escapeHtml(c.username)}</strong><br><span style="font-size:12px; opacity:0.7;">ID: ${c.credentialId.slice(0,16)}...</span></div>
+            <span class="badge">Passkey</span>
+          </div>`;
+        });
+        listDiv.innerHTML = html;
+      } catch (e) {
+        listDiv.innerHTML = '<p style="color:#ef4444;">Error loading credentials.</p>';
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ---------- Registration ----------
+    document.getElementById('registerBtn').addEventListener('click', async () => {
+      const username = document.getElementById('usernameInput').value.trim();
+      if (!username) {
+        showToast('Please enter a username', true);
+        return;
+      }
+
+      try {
+        // Check if username already exists
+        const existing = await getAllCredentials();
+        if (existing.some(c => c.username === username)) {
+          showToast('Username already registered', true);
+          return;
+        }
+
+        const challenge = generateChallenge();
+        const userId = crypto.getRandomValues(new Uint8Array(16));
+
+        const publicKeyCredentialCreationOptions = {
+          challenge: challenge,
+          rp: {
+            name: "PassKey Vault Demo",
+            id: window.location.hostname  // Use actual domain
+          },
+          user: {
+            id: userId,
+            name: username,
+            displayName: username
+          },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7 },  // ES256
+            { type: "public-key", alg: -257 } // RS256
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required",
+            residentKey: "required"
+          },
+          timeout: 60000,
+          attestation: "none"
+        };
+
+        const credential = await navigator.credentials.create({
+          publicKey: publicKeyCredentialCreationOptions
+        });
+
+        // Store credential info
+        const storedCredential = {
+          id: credential.id,
+          username: username,
+          credentialId: credential.id,
+          publicKey: arrayBufferToBase64(credential.response.getPublicKey()),
+          rawId: arrayBufferToBase64(credential.rawId)
+        };
+
+        await saveCredential(storedCredential);
+        showToast(`✅ Passkey registered for ${username}!`, false);
+        document.getElementById('usernameInput').value = '';
+        await renderCredentials();
+      } catch (err) {
+        console.error(err);
+        showToast(`Registration failed: ${err.message}`, true);
+      }
+    });
+
+    // ---------- Login ----------
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      try {
+        const challenge = generateChallenge();
+        const allowCredentials = [];
+
+        const publicKeyCredentialRequestOptions = {
+          challenge: challenge,
+          rpId: window.location.hostname,
+          userVerification: "required",
+          timeout: 60000
+        };
+
+        const assertion = await navigator.credentials.get({
+          publicKey: publicKeyCredentialRequestOptions
+        });
+
+        if (!assertion) {
+          showToast('Authentication cancelled', true);
+          return;
+        }
+
+        // Find the user
+        const creds = await getAllCredentials();
+        const matched = creds.find(c => c.credentialId === assertion.id);
+        const username = matched ? matched.username : 'Unknown user';
+
+        showToast(`🎉 Welcome, ${username}! Authentication successful.`, false);
+      } catch (err) {
+        console.error(err);
+        showToast(`Authentication failed: ${err.message}`, true);
+      }
+    });
+
+    // ---------- Clear All ----------
+    document.getElementById('clearAllBtn').addEventListener('click', async () => {
+      if (!confirm('Delete all registered passkeys? This cannot be undone.')) return;
+      try {
+        await clearAllCredentials();
+        await renderCredentials();
+        showToast('All credentials cleared');
+      } catch (e) {
+        showToast('Failed to clear', true);
+      }
+    });
+
+    // ---------- Theme Toggle ----------
+    function initTheme() {
+      const toggle = document.getElementById('themeToggle');
+      const current = localStorage.getItem('theme') || 'dark';
+      document.body.classList.toggle('light-mode', current === 'light');
+      toggle.textContent = current === 'light' ? '☀️' : '🌙';
+      toggle.addEventListener('click', () => {
+        const isLight = document.body.classList.toggle('light-mode');
+        localStorage.setItem('theme', isLight ? 'light' : 'dark');
+        toggle.textContent = isLight ? '☀️' : '🌙';
+      });
+    }
+
+    // ---------- Startup ----------
+    window.addEventListener('load', async () => {
+      try {
+        await openDB();
+        await renderCredentials();
+        initTheme();
+        showToast('PassKey Vault ready. Register or login with biometrics.');
+      } catch (e) {
+        showToast('IndexedDB failed. Use a modern browser.', true);
+      }
+    });
+  })();
+</script>
+</body>
+</html>
