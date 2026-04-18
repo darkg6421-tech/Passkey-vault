@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>SteganoCrypt Pro · Secure Covert Storage</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #e2e8f0;
+      --border: #334155;
+      --accent: #8b5cf6;
+      --success: #10b981;
+    }
+    .light-mode {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #1e293b;
+      --border: #cbd5e1;
+      --accent: #7c3aed;
+      --success: #059669;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 16px;
+      transition: background 0.2s;
+    }
+    .container { max-width: 550px; margin: 0 auto; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .logo {
+      font-size: 26px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    h2 { margin-bottom: 20px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+    input, textarea {
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      color: var(--text);
+      font-size: 16px;
+      margin-bottom: 16px;
+    }
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 14px 20px;
+      border-radius: 40px;
+      font-weight: 600;
+      font-size: 16px;
+      width: 100%;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--text);
+    }
+    canvas, img { max-width: 100%; border-radius: 16px; margin: 16px 0; border: 1px solid var(--border); }
+    .info-box {
+      background: rgba(139, 92, 246, 0.1);
+      border-left: 4px solid var(--accent);
+      padding: 12px;
+      border-radius: 12px;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+    .progress-container {
+      width: 100%;
+      height: 8px;
+      background: var(--border);
+      border-radius: 10px;
+      margin: 16px 0;
+      display: none;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--success);
+      border-radius: 10px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      background: #1e293b;
+      color: white;
+      padding: 12px;
+      border-radius: 30px;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 999;
+    }
+    .toast.show { opacity: 1; }
+    .theme-toggle { background: none; border: none; font-size: 24px; cursor: pointer; }
+    .flex { display: flex; gap: 10px; }
+    .hidden { display: none; }
+    .capacity-badge {
+      background: var(--accent);
+      color: white;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+<button class="theme-toggle" id="themeToggle">🌙</button>
+<div class="container">
+  <div class="header">
+    <div class="logo">🛡️ SteganoCrypt Pro</div>
+  </div>
+
+  <!-- Hide Section -->
+  <div class="card">
+    <h2>🔒 Hide Secret</h2>
+    <input type="file" id="hideImageInput" accept="image/*">
+    <input type="password" id="hidePassword" placeholder="Encryption password" autocomplete="off">
+    <textarea id="secretToHide" placeholder="Enter secret message..." rows="3"></textarea>
+    <div class="info-box" id="capacityInfo">Select an image to check capacity</div>
+    <div class="progress-container" id="hideProgress"><div class="progress-bar" id="hideProgressBar"></div></div>
+    <button class="btn" id="hideBtn">Encrypt & Hide in Image</button>
+    <canvas id="hideCanvas" class="hidden"></canvas>
+  </div>
+
+  <!-- Extract Section -->
+  <div class="card">
+    <h2>🔓 Extract Secret</h2>
+    <input type="file" id="extractImageInput" accept="image/*">
+    <input type="password" id="extractPassword" placeholder="Decryption password" autocomplete="off">
+    <div class="progress-container" id="extractProgress"><div class="progress-bar" id="extractProgressBar"></div></div>
+    <button class="btn" id="extractBtn">Extract & Decrypt</button>
+    <canvas id="extractCanvas" class="hidden"></canvas>
+    <div id="extractedResult" class="info-box hidden"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.5.0/lz-string.min.js"></script>
+<script>
+  (function(){
+    "use strict";
+
+    // ---------- Theme ----------
+    const themeToggle = document.getElementById('themeToggle');
+    function initTheme() {
+      const current = localStorage.getItem('theme') || 'dark';
+      document.body.classList.toggle('light-mode', current === 'light');
+      themeToggle.textContent = current === 'light' ? '☀️' : '🌙';
+      themeToggle.addEventListener('click', () => {
+        const isLight = document.body.classList.toggle('light-mode');
+        localStorage.setItem('theme', isLight ? 'light' : 'dark');
+        themeToggle.textContent = isLight ? '☀️' : '🌙';
+      });
+    }
+    initTheme();
+
+    // ---------- Toast ----------
+    function showToast(msg, isErr = false) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.style.background = isErr ? '#dc2626' : '#1e293b';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // ---------- Crypto Utilities ----------
+    async function deriveKey(password, salt) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
+      return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
+    }
+
+    async function encryptMessage(message, password) {
+      const enc = new TextEncoder();
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await deriveKey(password, salt);
+      const compressed = LZString.compressToUint8Array(message);
+      const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, compressed);
+      return { salt, iv, data: new Uint8Array(encrypted) };
+    }
+
+    async function decryptMessage(encryptedData, password) {
+      const { salt, iv, data } = encryptedData;
+      const key = await deriveKey(password, salt);
+      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+      const decompressed = LZString.decompressFromUint8Array(new Uint8Array(decrypted));
+      if (!decompressed) throw new Error('Decompression failed');
+      return decompressed;
+    }
+
+    async function computeHMAC(data, key) {
+      const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+      return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, data));
+    }
+
+    // ---------- Steganography (Seeded PRNG) ----------
+    class SeededRandom {
+      constructor(seed) {
+        this.seed = seed;
+      }
+      next() {
+        this.seed = (this.seed * 9301 + 49297) % 233280;
+        return this.seed / 233280;
+      }
+    }
+
+    function getSeedFromPassword(password) {
+      let hash = 0;
+      for (let i = 0; i < password.length; i++) {
+        hash = ((hash << 5) - hash) + password.charCodeAt(i);
+        hash |= 0;
+      }
+      return Math.abs(hash);
+    }
+
+    function getCapacity(width, height) {
+      return Math.floor((width * height * 3) / 8); // bits to bytes
+    }
+
+    // Web Worker for heavy processing
+    const workerCode = `
+      self.onmessage = function(e) {
+        const { action, canvasData, binaryData, seed, width, height } = e.data;
+        if (action === 'hide') {
+          const rng = new SeededRandom(seed);
+          const data = canvasData.data;
+          let bitIdx = 0;
+          const totalBits = binaryData.length * 8;
+          const pixelIndices = [];
+          for (let i = 0; i < width * height; i++) pixelIndices.push(i);
+          for (let i = pixelIndices.length - 1; i > 0; i--) {
+            const j = Math.floor(rng.next() * (i + 1));
+            [pixelIndices[i], pixelIndices[j]] = [pixelIndices[j], pixelIndices[i]];
+          }
+          for (const idx of pixelIndices) {
+            if (bitIdx >= totalBits) break;
+            const offset = idx * 4;
+            const byteVal = binaryData[Math.floor(bitIdx / 8)];
+            const bitPos = 7 - (bitIdx % 8);
+            const bit = (byteVal >> bitPos) & 1;
+            const channel = Math.floor(rng.next() * 3);
+            data[offset + channel] = (data[offset + channel] & 0xFE) | bit;
+            bitIdx++;
+          }
+          self.postMessage({ action: 'hideDone', canvasData });
+        } else if (action === 'extract') {
+          const rng = new SeededRandom(seed);
+          const data = canvasData.data;
+          const pixelIndices = [];
+          for (let i = 0; i < width * height; i++) pixelIndices.push(i);
+          for (let i = pixelIndices.length - 1; i > 0; i--) {
+            const j = Math.floor(rng.next() * (i + 1));
+            [pixelIndices[i], pixelIndices[j]] = [pixelIndices[j], pixelIndices[i]];
+          }
+          let binary = '';
+          for (const idx of pixelIndices) {
+            const offset = idx * 4;
+            const channel = Math.floor(rng.next() * 3);
+            binary += (data[offset + channel] & 1).toString();
+            if (binary.length % 8 === 0) {
+              const byte = parseInt(binary.slice(-8), 2);
+              if (byte === 0 && binary.length >= 8) break;
+            }
+          }
+          const bytes = [];
+          for (let i = 0; i < binary.length; i += 8) {
+            const byte = parseInt(binary.substr(i, 8), 2);
+            if (byte === 0) break;
+            bytes.push(byte);
+          }
+          self.postMessage({ action: 'extractDone', bytes: new Uint8Array(bytes) });
+        }
+      };
+      class SeededRandom { constructor(s){this.s=s} next(){this.s=(this.s*9301+49297)%233280;return this.s/233280} }
+    `;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const workerUrl = URL.createObjectURL(blob);
+    const worker = new Worker(workerUrl);
+
+    // ---------- DOM Elements ----------
+    const hideImageInput = document.getElementById('hideImageInput');
+    const hidePassword = document.getElementById('hidePassword');
+    const secretToHide = document.getElementById('secretToHide');
+    const hideBtn = document.getElementById('hideBtn');
+    const hideCanvas = document.getElementById('hideCanvas');
+    const hideProgress = document.getElementById('hideProgress');
+    const hideProgressBar = document.getElementById('hideProgressBar');
+    const capacityInfo = document.getElementById('capacityInfo');
+
+    const extractImageInput = document.getElementById('extractImageInput');
+    const extractPassword = document.getElementById('extractPassword');
+    const extractBtn = document.getElementById('extractBtn');
+    const extractCanvas = document.getElementById('extractCanvas');
+    const extractProgress = document.getElementById('extractProgress');
+    const extractProgressBar = document.getElementById('extractProgressBar');
+    const extractedResult = document.getElementById('extractedResult');
+
+    let hideCtx = null, extractCtx = null;
+    let originalImageData = null;
+
+    // ---------- Hide Flow ----------
+    hideImageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          hideCanvas.width = img.width;
+          hideCanvas.height = img.height;
+          hideCtx = hideCanvas.getContext('2d', { willReadFrequently: true });
+          hideCtx.drawImage(img, 0, 0);
+          originalImageData = hideCtx.getImageData(0, 0, img.width, img.height);
+          const cap = getCapacity(img.width, img.height);
+          capacityInfo.innerHTML = `<strong>📦 Capacity:</strong> ${(cap/1024).toFixed(1)} KB available.`;
+          hideCanvas.classList.remove('hidden');
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    hideBtn.addEventListener('click', async () => {
+      if (!originalImageData) { showToast('Select an image first', true); return; }
+      const password = hidePassword.value;
+      if (!password) { showToast('Enter encryption password', true); return; }
+      const secret = secretToHide.value.trim();
+      if (!secret) { showToast('Enter a secret message', true); return; }
+
+      hideBtn.disabled = true;
+      hideProgress.style.display = 'block';
+      hideProgressBar.style.width = '10%';
+
+      try {
+        const encrypted = await encryptMessage(secret, password);
+        // Combine: salt(16) + iv(12) + data
+        const combined = new Uint8Array(16 + 12 + encrypted.data.length);
+        combined.set(encrypted.salt, 0);
+        combined.set(encrypted.iv, 16);
+        combined.set(encrypted.data, 28);
+        
+        // Add HMAC (use first 16 bytes of derived key as HMAC key)
+        const seed = getSeedFromPassword(password);
+        const hmacKey = await crypto.subtle.exportKey('raw', await deriveKey(password, encrypted.salt));
+        const hmac = await computeHMAC(combined, new Uint8Array(hmacKey).slice(0, 16));
+        const finalData = new Uint8Array(combined.length + hmac.length);
+        finalData.set(combined);
+        finalData.set(hmac, combined.length);
+        
+        // Check capacity
+        const requiredBytes = finalData.length;
+        const capacity = getCapacity(hideCanvas.width, hideCanvas.height);
+        if (requiredBytes > capacity) {
+          throw new Error(`Secret too large (${requiredBytes} bytes > ${capacity} bytes capacity)`);
+        }
+
+        hideProgressBar.style.width = '30%';
+        const canvasData = new ImageData(new Uint8ClampedArray(originalImageData.data), hideCanvas.width, hideCanvas.height);
+        
+        worker.postMessage({
+          action: 'hide',
+          canvasData,
+          binaryData: finalData,
+          seed,
+          width: hideCanvas.width,
+          height: hideCanvas.height
+        });
+
+        worker.onmessage = (e) => {
+          if (e.data.action === 'hideDone') {
+            hideProgressBar.style.width = '90%';
+            const resultData = e.data.canvasData;
+            hideCtx.putImageData(resultData, 0, 0);
+            const randomName = `steg_${Date.now().toString(36)}_${Math.random().toString(36).substr(2,6)}.png`;
+            const link = document.createElement('a');
+            link.download = randomName;
+            link.href = hideCanvas.toDataURL('image/png');
+            link.click();
+            showToast('✅ Secure image downloaded!');
+            hideBtn.disabled = false;
+            hideProgress.style.display = 'none';
+            hideProgressBar.style.width = '0%';
+          }
+        };
+      } catch (err) {
+        showToast(err.message, true);
+        hideBtn.disabled = false;
+        hideProgress.style.display = 'none';
+        hideProgressBar.style.width = '0%';
+      }
+    });
+
+    // ---------- Extract Flow ----------
+    extractImageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          extractCanvas.width = img.width;
+          extractCanvas.height = img.height;
+          extractCtx = extractCanvas.getContext('2d', { willReadFrequently: true });
+          extractCtx.drawImage(img, 0, 0);
+          extractCanvas.classList.remove('hidden');
+          extractedResult.classList.add('hidden');
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    extractBtn.addEventListener('click', async () => {
+      if (!extractCtx) { showToast('Select an image first', true); return; }
+      const password = extractPassword.value;
+      if (!password) { showToast('Enter decryption password', true); return; }
+
+      extractBtn.disabled = true;
+      extractProgress.style.display = 'block';
+      extractProgressBar.style.width = '20%';
+
+      try {
+        const canvasData = extractCtx.getImageData(0, 0, extractCanvas.width, extractCanvas.height);
+        const seed = getSeedFromPassword(password);
+        
+        worker.postMessage({
+          action: 'extract',
+          canvasData,
+          seed,
+          width: extractCanvas.width,
+          height: extractCanvas.height
+        });
+
+        worker.onmessage = async (e) => {
+          if (e.data.action === 'extractDone') {
+            extractProgressBar.style.width = '70%';
+            const extractedBytes = e.data.bytes;
+            if (extractedBytes.length < 28) throw new Error('No hidden data found');
+            
+            // Split salt, iv, encrypted data, and hmac
+            const salt = extractedBytes.slice(0, 16);
+            const iv = extractedBytes.slice(16, 28);
+            const hmacReceived = extractedBytes.slice(-32);
+            const encrypted = extractedBytes.slice(28, -32);
+            
+            // Verify HMAC
+            const combined = new Uint8Array(28 + encrypted.length);
+            combined.set(salt, 0);
+            combined.set(iv, 16);
+            combined.set(encrypted, 28);
+            const hmacKey = await crypto.subtle.exportKey('raw', await deriveKey(password, salt));
+            const hmacComputed = await computeHMAC(combined, new Uint8Array(hmacKey).slice(0, 16));
+            if (hmacComputed.length !== hmacReceived.length || !hmacComputed.every((v,i) => v === hmacReceived[i])) {
+              throw new Error('Integrity check failed — wrong password or tampered image');
+            }
+            
+            const message = await decryptMessage({ salt, iv, data: encrypted }, password);
+            extractProgressBar.style.width = '100%';
+            extractedResult.innerHTML = `<strong>🔓 Extracted Secret:</strong><br><br>${message}`;
+            extractedResult.classList.remove('hidden');
+            showToast('Secret successfully extracted!');
+          }
+        };
+      } catch (err) {
+        showToast(err.message, true);
+        extractedResult.innerHTML = `<span style="color:#ef4444;">Error: ${err.message}</span>`;
+        extractedResult.classList.remove('hidden');
+      } finally {
+        extractBtn.disabled = false;
+        extractProgress.style.display = 'none';
+        extractProgressBar.style.width = '0%';
+      }
+    });
+  })();
+</script>
+</body>
+</html>
